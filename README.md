@@ -1,5 +1,7 @@
 # Wing Pong — LG Wing 双屏编程 Demo
 
+[![CI](https://github.com/A0nameless0man/lg-wing-pong/actions/workflows/ci.yml/badge.svg)](https://github.com/A0nameless0man/lg-wing-pong/actions/workflows/ci.yml)
+
 ![](docs/hero.png)
 
 为 LG Wing（旋盖双屏手机）编写的双屏 Pong：**大屏横屏打游戏，小屏就是手柄**。
