@@ -22,11 +22,6 @@
   重新展开恢复双屏分工（通过 `DisplayManager.DisplayListener` 监听副屏电源状态实现）
 - 没有小屏的普通手机也能玩：手柄与游戏合并到同一屏（触摸左右半区）
 
-<div>
-<img src="docs/screen_main.png" width="49%" alt="主屏游戏画面">
-<img src="docs/screen_small.png" width="49%" alt="小屏手柄画面">
-</div>
-
 ## 双屏实现核心（20 行以内）
 
 ```java
