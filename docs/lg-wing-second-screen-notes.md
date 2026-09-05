@@ -80,6 +80,50 @@ canBeLaunchedOnSubDisplay(displayId=4):
 - 旋盖状态的公开替代方案：vendor 传感器 `LGE Hall Distance Sensor`
   （type 499898131），标准 `SensorManager` 可读
 
+### 5.1 官方"SDK"重建：android.app.ActivityManagerEx 完整 API
+
+**结论先行：LG 从未公开发布过 Dual Screen SDK。** 考古结论：
+- Maven Central 上 LG 只发过 `com.lge.developer:qcircle-design-template` 和
+  `qpair-apis`（G3 时代），无任何 dualscreen 构件
+- Wayback 中 developer.lge.com 只有 QRemote/QSlide/QPair 旧 SDK 文档（2014-2016），
+  无 Dual Screen SDK 页面；LG 2021 年退出手机业务后开发者门户关闭
+- LG 自家应用（时钟/设置/视频播放器）**编译期直接链接 framework.jar 里的 LG 扩展类**，
+  并用 `lgapi.exception.reason=app_internal_use` 元数据标记私有 API 使用许可
+
+这套"SDK"随每台设备 framework.jar 分发（已从设备提取并完整反编译，见
+`F:\Android\decompiled\sdk\`）。核心入口 `android.app.ActivityManagerEx`
+（`getSystemService("activity")` 返回；binder 与标准 AMS 多路复用，descriptor 嗅探）：
+
+```
+// 准入
+boolean canBeLaunchedOnSubDisplay(int displayId, String packageName)
+boolean updateLaunchedOnSubDisplayPackageByUser(String pkg, boolean enable)  // ⚠ 无权限校验
+List<String> getDefaultListOnSubDisplay()
+
+// 跨屏搬运
+boolean moveTaskToDisplayAsDisplayId(int taskId, int targetDisplayId, int currentDisplayId)
+boolean moveToDisplayAsDisplayId(int mode, int displayId)   // MOVE_TO_DISPLAY=0, TAKE_FROM_DISPLAY=1
+boolean moveToDisplayEx(int mode)                            // 含 MOVE_SWAP(两屏互换)
+void startSecondHomeActivityAsDisplayId(int displayId)       // 拉起副屏桌面(CoverHome)
+
+// 宽屏模式
+void setWideScreenMode(boolean) / boolean getWideScreenMode()
+boolean isSupportWideScreenMode(String pkg) / void updateWideModeAppByUser(String, boolean)
+
+// 事件回调
+void registerLGActivityTrigger(ILGActivityTrigger)           // 白名单变更推送(7=加,8=删)
+```
+
+- 服务端：`ActivityTaskManagerServiceEx`/`ActivityManagerServiceEx`（LG 继承并替换系统
+  ATMS/AMS），binder 在标准 `activity` 服务上多路复用（descriptor 嗅探路由）。
+- transaction 编号已完整记录（27=canBeLaunchedOnSubDisplay、28=updateLaunched...、
+  30=moveTaskToDisplayAsDisplayId 等），理论上 `service call activity <n>` 可直达
+  （参数需精确打包；实测参数序列化不匹配会返回异常包）。
+- 白名单变更**不是广播**，是 binder 回调（`LGActivityTrigger.activityChanged`），
+  启动器注册后实时增删抽屉图标。
+- hiddenapi 风险：ActivityManagerEx 不在公共 SDK，反射调用受 non-SDK 限制约束；
+  规避需 raw binder（ServiceManager + 手写 parcel）。
+
 ## 6. 调试小抄
 
 - 这台机器 `screencap -d` 需要 SurfaceFlinger 物理屏 ID（见 `dumpsys SurfaceFlinger --display-id`），
