@@ -7,6 +7,7 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Display;
@@ -27,6 +28,15 @@ public class GameActivity extends Activity {
 
     private static final String TAG = "WingPong";
     private static final String EXTRA_REDIRECTED = "redirected";
+    private static final long HEARTBEAT_MS = 2000;
+    private static final long RESPAWN_MIN_INTERVAL_MS = 1500;
+    // 重定向熔断:10 秒窗口内最多 3 次,防止 ROM 不服从 display 指定时陷入循环
+    private static int redirectCount;
+    private static long redirectWindowStart;
+
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+    private long lastControllerSpawnAt;
+    private boolean heartbeatRunning;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -42,6 +52,80 @@ public class GameActivity extends Activity {
         trackCoverState();
     }
 
+    @Override
+    protected void onResume() {
+        super.onResume();
+        PongEngine.get().gameUiLive = true;
+        startHeartbeat();
+        enforceTopology();
+    }
+
+    @Override
+    protected void onPause() {
+        PongEngine.get().gameUiLive = false;
+        stopHeartbeat();
+        super.onPause();
+    }
+
+    private void startHeartbeat() {
+        if (heartbeatRunning) return;
+        heartbeatRunning = true;
+        mainHandler.postDelayed(heartbeatRunnable, HEARTBEAT_MS);
+    }
+
+    private void stopHeartbeat() {
+        heartbeatRunning = false;
+        mainHandler.removeCallbacks(heartbeatRunnable);
+    }
+
+    private final Runnable heartbeatRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!heartbeatRunning) return;
+            enforceTopology();
+            mainHandler.postDelayed(heartbeatRunnable, HEARTBEAT_MS);
+        }
+    };
+
+    /** 周期性拓扑自愈:副屏电源状态刷新 + 手柄实例健康检查(错屏纠正/亡佚补spawn) */
+    private void enforceTopology() {
+        reevaluateCoverState();
+        Integer expected = PongEngine.get().expectedControllerDisplayId;
+        if (expected == null) return;
+
+        ControllerActivity ca = PongEngine.get().controllerActivity;
+        boolean healthy = ca != null && !ca.isFinishing()
+                && ca.getDisplay() != null && ca.getDisplay().getDisplayId() == expected;
+        if (healthy) return;
+
+        Log.i(TAG, "controller unhealthy (alive=" + (ca != null) + "), respawning on display " + expected);
+        if (ca != null && !ca.isFinishing()) {
+            ca.finish();
+        }
+        long now = SystemClock.elapsedRealtime();
+        if (now - lastControllerSpawnAt >= RESPAWN_MIN_INTERVAL_MS) {
+            lastControllerSpawnAt = now;
+            spawnControllerOnOtherInternalDisplay();
+        }
+    }
+
+    /** 若手柄实例健在且在正确屏幕上,把它带回前台而不是新开实例 */
+    private boolean reviveExistingController(int targetDisplayId) {
+        ControllerActivity ca = PongEngine.get().controllerActivity;
+        if (ca == null || ca.isFinishing()) return false;
+        if (ca.getDisplay() == null || ca.getDisplay().getDisplayId() != targetDisplayId) return false;
+        try {
+            // NEW_TASK(不带 MULTIPLE_TASK)+ singleTask 会复用既有任务带到前台,不产生新任务
+            ActivityOptions opts = ActivityOptions.makeBasic();
+            opts.setLaunchDisplayId(targetDisplayId);
+            startActivity(new Intent(this, ControllerActivity.class), opts.toBundle());
+            return true;
+        } catch (Exception e) {
+            Log.w(TAG, "revive failed: " + e);
+            return false;
+        }
+    }
+
     /**
      * 大屏 only 开关:监听副屏电源状态。
      * 收起旋盖时 LG 会熄灭副屏面板(STATE 离开 ON),此时启用大屏触摸;
@@ -52,24 +136,24 @@ public class GameActivity extends Activity {
         DisplayManager.DisplayListener listener = new DisplayManager.DisplayListener() {
             @Override
             public void onDisplayAdded(int displayId) {
-                reevaluateCoverState(dm);
+                reevaluateCoverState();
             }
 
             @Override
             public void onDisplayRemoved(int displayId) {
-                reevaluateCoverState(dm);
+                reevaluateCoverState();
             }
 
             @Override
             public void onDisplayChanged(int displayId) {
-                reevaluateCoverState(dm);
+                reevaluateCoverState();
             }
         };
         dm.registerDisplayListener(listener, new Handler(Looper.getMainLooper()));
-        reevaluateCoverState(dm);
+        reevaluateCoverState();
     }
 
-    private void reevaluateCoverState(DisplayManager dm) {
+    private void reevaluateCoverState() {
         int currentId = getDisplay() != null ? getDisplay().getDisplayId() : Display.DEFAULT_DISPLAY;
         Display sub = null;
         for (Display d : internalDisplays()) {
@@ -106,8 +190,14 @@ public class GameActivity extends Activity {
      * @return true 表示已发起重定向,调用方应立即返回
      */
     private boolean redirectToBiggestInternalIfNeeded() {
-        if (getIntent().getBooleanExtra(EXTRA_REDIRECTED, false)) {
-            return false;   // 已重定向过一次,不再循环
+        long now = SystemClock.elapsedRealtime();
+        if (now - redirectWindowStart > 10_000) {
+            redirectWindowStart = now;
+            redirectCount = 0;
+        }
+        if (redirectCount >= 3) {
+            Log.w(TAG, "redirect circuit breaker tripped, staying put");
+            return false;
         }
         Display current = getDisplay();
         Display biggest = null;
@@ -128,11 +218,13 @@ public class GameActivity extends Activity {
                 + ", redirecting game to bigger display " + biggest.getDisplayId());
         try {
             Intent i = new Intent(this, GameActivity.class);
+            // 必须带 MULTIPLE_TASK:否则 NEW_TASK 会复用自己所在的旧任务(仍在小屏),迁移失效。
+            // 旧实例 finish 后任务自动回收,不会堆积。
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
-            i.putExtra(EXTRA_REDIRECTED, true);
             ActivityOptions opts = ActivityOptions.makeBasic();
             opts.setLaunchDisplayId(biggest.getDisplayId());
             startActivity(i, opts.toBundle());
+            redirectCount++;
             finish();
             return true;
         } catch (Exception e) {
@@ -156,14 +248,26 @@ public class GameActivity extends Activity {
         }
         if (target == null) {
             Log.i(TAG, "no secondary display, controller merged on this screen");
+            PongEngine.get().controllerExpected = false;
+            return;
+        }
+        PongEngine.get().expectedControllerDisplayId = target.getDisplayId();
+        PongEngine.get().controllerExpected = true;
+
+        // 已有实例在正确屏幕(比如只是退到了桌面):带回前台即可,避免任务堆积
+        if (reviveExistingController(target.getDisplayId())) {
+            Log.i(TAG, "controller revived on display " + target.getDisplayId());
             return;
         }
         try {
+            // NEW_TASK + manifest singleTask/独立 affinity/excludeFromRecents:
+            // LG 视频播放器 DsdpControllerActivity 同款,复用单实例且不进多任务
             ActivityOptions opts = ActivityOptions.makeBasic();
             opts.setLaunchDisplayId(target.getDisplayId());
             Intent i = new Intent(this, ControllerActivity.class);
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_MULTIPLE_TASK);
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(i, opts.toBundle());
+            lastControllerSpawnAt = SystemClock.elapsedRealtime();
             Log.i(TAG, "controller launched on display " + target.getDisplayId());
         } catch (Exception e) {
             // 双屏启动失败(设备/系统限制)时游戏仍可在本屏触摸左右半区游玩

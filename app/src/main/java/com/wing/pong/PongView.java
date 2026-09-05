@@ -56,12 +56,18 @@ public class PongView extends View implements Choreographer.FrameCallback {
     @Override
     public void doFrame(long frameNanos) {
         choreographer.postFrameCallback(this);
-        if (lastFrameNanos != 0) {
-            float dt = (frameNanos - lastFrameNanos) / 1_000_000_000f;
-            engine.step(dt);
-            invalidate();
+        // 手柄被退到桌面(暂停)或大屏退到桌面(gameUiLive=false)时冻结物理;
+        // 恢复时重新计时,避免跳帧
+        if (engine.gameUiLive && !engine.isPaused()) {
+            if (lastFrameNanos != 0) {
+                float dt = (frameNanos - lastFrameNanos) / 1_000_000_000f;
+                engine.step(dt);
+            }
+            lastFrameNanos = frameNanos;
+        } else {
+            lastFrameNanos = 0;
         }
-        lastFrameNanos = frameNanos;
+        invalidate();
     }
 
     @Override
@@ -114,7 +120,9 @@ public class PongView extends View implements Choreographer.FrameCallback {
         drawScore(c, engine.scoreRight, W * 0.75f);
 
         // 状态提示
-        if (engine.attractMode) {
+        if (engine.isPaused()) {
+            centerText(c, "PAUSED  -  REOPEN CONTROLLER ON SECOND SCREEN");
+        } else if (engine.attractMode) {
             centerText(c, "DEMO  AI VS AI   -   TAP TO PLAY");
         } else if (engine.gameOver) {
             centerText(c, (engine.scoreLeft > engine.scoreRight ? "YOU WIN" : "AI WINS")

@@ -32,6 +32,17 @@ public final class PongEngine {
     // 展开状态下为 false,游戏屏只显示不响应操作,保持双屏分工的演示纯度。
     public volatile boolean bigScreenTouchEnabled = false;
 
+    // ---- 生命周期 / 拓扑 ----
+    public volatile boolean gameUiLive = false;          // 大屏画面是否在前台
+    public volatile boolean controllerExpected = false;  // 双屏拓扑下应存在手柄
+    public volatile Integer expectedControllerDisplayId; // 手柄应在的 display
+    public ControllerActivity controllerActivity;        // 当前手柄实例(同进程,供拓扑自愈)
+
+    /** 手柄被退到桌面(且大屏触摸未接管)→ 暂停 */
+    public boolean isPaused() {
+        return controllerExpected && !controllerLive && !bigScreenTouchEnabled;
+    }
+
     // ---- 演示模式(玩家静置后接管玩家拍) ----
     public volatile boolean attractMode = false;
     private long lastPlayerInputMs = System.currentTimeMillis();
@@ -68,6 +79,12 @@ public final class PongEngine {
     }
 
     private void stepFixed(float dt) {
+        // 暂停:手柄被退到桌面(且大屏触摸未接管)。冻结一切,等玩家回来。
+        if (isPaused()) {
+            attractMode = false;
+            return;
+        }
+
         // 静置检测:超时进入演示模式,双 AI 对打
         attractMode = System.currentTimeMillis() - lastPlayerInputMs >= IDLE_TIMEOUT_MS;
 

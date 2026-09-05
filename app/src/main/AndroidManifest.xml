@@ -7,6 +7,15 @@
         android:label="Wing Pong"
         android:theme="@android:style/Theme.Material.NoActionBar">
 
+        <!-- LG Wing 双屏声明（取自 LG 视频播放器/时钟的官方清单）:
+             special_display = 应用知晓并适配副屏;
+             allow_multiple_resumed_activities = 允许两个 Activity 在两块屏上同时 Resumed;
+             showFullScreen / longdisplay = 全屏与长显示优化 -->
+        <meta-data android:name="com.lge.special_display" android:value="true" />
+        <meta-data android:name="android.allow_multiple_resumed_activities" android:value="true" />
+        <meta-data android:name="com.lge.app.showFullScreen" android:value="true" />
+        <meta-data android:name="com.lge.support.longdisplay" android:value="true" />
+
         <!-- 大屏:游戏画面。锁定单一横屏方向,sensorLandscape 会随机上下颠倒 -->
         <activity
             android:name=".GameActivity"
@@ -19,10 +28,16 @@
             </intent-filter>
         </activity>
 
-        <!-- 小屏:触控手柄 + 记分镜像。不直接启动,由 GameActivity 带目标 display 启动 -->
+        <!-- 小屏:触控手柄。
+             LG 官方模式(视频播放器 DsdpControllerActivity 同款):
+             独立 taskAffinity + singleTask 防止实例堆积,
+             excludeFromRecents 不出现在多任务(从小屏桌面/心跳回收) -->
         <activity
             android:name=".ControllerActivity"
             android:exported="false"
+            android:launchMode="singleTask"
+            android:excludeFromRecents="true"
+            android:taskAffinity="com.wing.pong.controller"
             android:screenOrientation="portrait"
             android:configChanges="orientation|screenSize|screenLayout|keyboardHidden" />
     </application>
