@@ -27,6 +27,11 @@ public final class PongEngine {
     public volatile float controllerPaddleY = 0.5f;   // 归一化 0..1
     public volatile boolean controllerLive = false;   // 小屏 Activity 是否在前台
 
+    // ---- 大屏 only 模式 ----
+    // 旋盖收起(副屏面板熄灭)或设备没有副屏时置 true,大屏触摸接管玩家拍;
+    // 展开状态下为 false,游戏屏只显示不响应操作,保持双屏分工的演示纯度。
+    public volatile boolean bigScreenTouchEnabled = false;
+
     // ---- 演示模式(玩家静置后接管玩家拍) ----
     public volatile boolean attractMode = false;
     private long lastPlayerInputMs = System.currentTimeMillis();

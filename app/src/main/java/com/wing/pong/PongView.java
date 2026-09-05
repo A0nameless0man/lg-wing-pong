@@ -5,11 +5,15 @@ import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
 import android.view.Choreographer;
+import android.view.MotionEvent;
 import android.view.View;
 
 /**
  * 大屏游戏画面。Choreographer 驱动:每帧推进固定步长物理再绘制,
  * 状态永远读自 PongEngine 单例——小屏的手部动作直接反映到这里。
+ *
+ * 同时支持大屏本体触摸(收起旋盖后的"大屏 only"模式):
+ * 纵向拖动 = 玩家拍,点按 = 发球,与手柄共用同一引擎通道。
  */
 public class PongView extends View implements Choreographer.FrameCallback {
 
@@ -61,6 +65,21 @@ public class PongView extends View implements Choreographer.FrameCallback {
     }
 
     @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        // 展开模式下不响应:游戏屏只显示,操作全部来自小屏手柄,保证演示纯度。
+        // 收起(副屏熄灭)或无副屏设备上,bigScreenTouchEnabled=true,大屏即主控。
+        if (!engine.bigScreenTouchEnabled) {
+            return true;
+        }
+        // 与 ControllerView 同一套语义:纵向位置驱动拍子,按下触发发球/接管。
+        engine.onControllerDrag(event.getY() / Math.max(1, getHeight()));
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+            engine.onControllerTap();
+        }
+        return true;
+    }
+
+    @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         W = w;
         H = h;
@@ -96,14 +115,12 @@ public class PongView extends View implements Choreographer.FrameCallback {
 
         // 状态提示
         if (engine.attractMode) {
-            centerText(c, "DEMO  AI VS AI   -   TAP CONTROLLER TO PLAY");
-        } else if (!engine.controllerLive) {
-            centerText(c, "WAITING FOR CONTROLLER ON SECOND DISPLAY...");
+            centerText(c, "DEMO  AI VS AI   -   TAP TO PLAY");
         } else if (engine.gameOver) {
             centerText(c, (engine.scoreLeft > engine.scoreRight ? "YOU WIN" : "AI WINS")
-                    + "   TAP CONTROLLER TO REMATCH");
+                    + "   TAP TO REMATCH");
         } else if (engine.serving) {
-            centerText(c, "TAP CONTROLLER TO SERVE");
+            centerText(c, engine.bigScreenTouchEnabled ? "TAP TO SERVE" : "TAP CONTROLLER TO SERVE");
         }
     }
 

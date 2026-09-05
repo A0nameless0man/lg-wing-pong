@@ -18,6 +18,8 @@
 
 - 启动后**自动**把手柄 Activity 推到小屏（`ActivityOptions.setLaunchDisplayId`）
 - 控制器静置 10 秒进入 **DEMO 模式（AI vs AI 自动对打）**，小屏任意点按即刻接管
+- **支持收起旋盖**：合上时副屏熄灭，自动切到大屏 only 模式（大屏触摸直接控拍）；
+  重新展开恢复双屏分工（通过 `DisplayManager.DisplayListener` 监听副屏电源状态实现）
 - 没有小屏的普通手机也能玩：手柄与游戏合并到同一屏（触摸左右半区）
 
 <div>
@@ -76,8 +78,11 @@ controller with a mirrored scoreboard. No third-party dependencies; only
 public APIs — `ActivityOptions.setLaunchDisplayId()` plus a same-process
 singleton (`PongEngine`) shared by two activities running on two displays.
 After 10s of idle time the game enters an AI-vs-AI attract mode; any tap on
-the controller takes over. The repo also documents LG's undocumented
-second-screen app whitelist (see `docs/lg-wing-second-screen-notes.md`).
+the controller takes over. Closing the swivel powers off the secondary panel
+and the game automatically falls back to big-screen-only touch play
+(detected via `DisplayManager.DisplayListener`). The repo also documents LG's
+undocumented second-screen app whitelist (see
+`docs/lg-wing-second-screen-notes.md`).
 
 Build: JDK 17+, `./gradlew assembleDebug`, minSdk 26 / targetSdk 33.
 

@@ -5,6 +5,8 @@ import android.app.ActivityOptions;
 import android.hardware.display.DisplayManager;
 import android.content.Intent;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.DisplayMetrics;
 import android.util.Log;
 import android.view.Display;
@@ -37,6 +39,52 @@ public class GameActivity extends Activity {
         PongEngine.get().reset();
         setContentView(new PongView(this));
         spawnControllerOnOtherInternalDisplay();
+        trackCoverState();
+    }
+
+    /**
+     * 大屏 only 开关:监听副屏电源状态。
+     * 收起旋盖时 LG 会熄灭副屏面板(STATE 离开 ON),此时启用大屏触摸;
+     * 重新展开副屏点亮后关闭大屏触摸,恢复双屏分工。
+     */
+    private void trackCoverState() {
+        DisplayManager dm = (DisplayManager) getSystemService(DISPLAY_SERVICE);
+        DisplayManager.DisplayListener listener = new DisplayManager.DisplayListener() {
+            @Override
+            public void onDisplayAdded(int displayId) {
+                reevaluateCoverState(dm);
+            }
+
+            @Override
+            public void onDisplayRemoved(int displayId) {
+                reevaluateCoverState(dm);
+            }
+
+            @Override
+            public void onDisplayChanged(int displayId) {
+                reevaluateCoverState(dm);
+            }
+        };
+        dm.registerDisplayListener(listener, new Handler(Looper.getMainLooper()));
+        reevaluateCoverState(dm);
+    }
+
+    private void reevaluateCoverState(DisplayManager dm) {
+        int currentId = getDisplay() != null ? getDisplay().getDisplayId() : Display.DEFAULT_DISPLAY;
+        Display sub = null;
+        for (Display d : internalDisplays()) {
+            if (d.getDisplayId() != currentId) {
+                sub = d;
+                break;
+            }
+        }
+        // 无副屏(普通手机)或副屏面板熄灭(旋盖收起) → 大屏触摸接管;
+        // 副屏点亮(展开) → 大屏只显示,操作归小屏手柄。
+        boolean touchEnabled = sub == null || sub.getState() != Display.STATE_ON;
+        if (PongEngine.get().bigScreenTouchEnabled != touchEnabled) {
+            Log.i(TAG, "bigScreenTouchEnabled=" + touchEnabled);
+            PongEngine.get().bigScreenTouchEnabled = touchEnabled;
+        }
     }
 
     /** 枚举非私有的内建/覆盖屏(排除投屏与 Presentation 虚拟屏) */
