@@ -1,0 +1,31 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.wing.pong'
+    compileSdk 33
+
+    defaultConfig {
+        applicationId 'com.wing.pong'
+        minSdk 26
+        targetSdk 33
+        versionCode 1
+        versionName '1.0'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+// 刻意的零依赖：纯 android.framework，双屏双 Activity 靠进程内单例通信
+dependencies {
+}

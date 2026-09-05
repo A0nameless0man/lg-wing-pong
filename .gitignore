@@ -1,0 +1,15 @@
+# Gradle
+.gradle/
+build/
+
+# Android Studio / IDE
+.idea/
+*.iml
+local.properties
+
+# opencode session files
+.omo/
+
+# OS
+Thumbs.db
+.DS_Store
